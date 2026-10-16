@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zagreb-events"
+version = "0.1.0"
+description = "Zagreb events aggregator: source discovery, event ingestion, LLM enrichment and static site publication on AWS."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Proprietary" }
+# Core dependencies shared by every Lambda function.
+dependencies = [
+    "boto3>=1.35",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Per-function extras. Each Lambda package installs only the extras it needs (TDD 3.2.2).
+scrape = ["playwright>=1.45"]                                              # scrape_source (render: js)
+extract = ["selectolax>=0.3.21", "trafilatura>=1.12", "extruct>=0.17"]     # clean_extract, score_sources
+dedupe = ["rapidfuzz>=3.9"]                                                # deduplicate_filter
+discovery = ["lingua-language-detector>=2.0"]                              # safety_check
+publish = ["jinja2>=3.1"]                                                  # build_site_data
+all = ["zagreb-events[scrape,extract,dedupe,discovery,publish]"]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "pytest-socket>=0.7",
+    "moto[s3,dynamodb,ssm,stepfunctions]>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "boto3-stubs[s3,dynamodb,ssm,bedrock-runtime,stepfunctions,athena,location]>=1.35",
+    "types-PyYAML>=6.0",
+    "pip-audit>=2.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+publish = ["templates/**/*"]
+
+# --- ruff -------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = ["frontend", "infra", "containers"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "DTZ",      # timezone-aware datetimes (Europe/Zagreb event times)
+    "S",        # bandit security checks
+    "PT",       # pytest style
+    "RUF",      # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is the point of a test
+
+[tool.ruff.lint.isort]
+known-first-party = ["common", "discovery", "ingestion", "authsources", "organizer_api", "publish"]
+
+# --- mypy -------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "tests"]
+mypy_path = "src"
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[[tool.mypy.overrides]]
+module = ["extruct.*", "trafilatura.*", "selectolax.*", "lingua.*"]
+ignore_missing_imports = true
+
+# --- pytest -----------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    "--disable-socket",       # no network access in unit tests (pytest-socket)
+    "-m", "not eval",         # the FR-20 evaluation set runs only through `make eval`
+]
+markers = [
+    "eval: FR-20 evaluation set run; calls Amazon Bedrock and is excluded by default",
+]
+
+# --- coverage ---------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
